@@ -1,0 +1,628 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="ボタンを押すとカラオケの縛りお題がランダムに出るガチャ">
+<meta name="theme-color" content="#0b0a26">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="縛りガチャ">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="favicon.png" type="image/png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<style>
+/* ページ全体の下地(ノッチやホームバーの分だけ上下に余白を取る) */
+:root { box-sizing: border-box; padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+body { margin: 0; }
+img { max-width: 100%; }
+[hidden] { display: none !important; }
+</style>
+<title>カラオケ縛りガチャ！</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@800&family=DotGothic16&family=Zen+Maru+Gothic:wght@500;700&display=swap">
+<style>
+/* Layout: 画面全体がカラオケの背景映像。上に機種ロゴと進行バー、中央に選曲番号の巨大ドット数字、下に2行の歌詞テロップとリモコンボタン */
+/* 単一テーマ(夜のカラオケ映像)に意図的に固定 */
+:root {
+  --night: #0b0a26;
+  --dusk: #3b1460;
+  --glow: #ff4f8b;
+  --glow-deep: #7d1446;
+  --telop-edge: #120a3a;
+  --telop-fill: #2fd2ff;
+  --ink: #ffffff;
+  --ink-soft: rgba(255, 255, 255, 0.68);
+  --ink-faint: rgba(255, 255, 255, 0.16);
+  --led: #ffe066;
+  --font-display: "M PLUS Rounded 1c", "Hiragino Maru Gothic ProN", "Yu Gothic", sans-serif;
+  --font-body: "Zen Maru Gothic", "Hiragino Maru Gothic ProN", "Yu Gothic", sans-serif;
+  --font-led: "DotGothic16", "MS Gothic", monospace;
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+body {
+  background: var(--night);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.6;
+  overflow-x: hidden;
+}
+#bgv {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+  background:
+    radial-gradient(120% 60% at 50% 115%, var(--dusk) 0%, transparent 70%),
+    linear-gradient(180deg, var(--night) 0%, #17104a 55%, #2a1158 100%);
+}
+/* 走査線でブラウン管っぽさを少しだけ */
+.scan {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.16) 0 1px, transparent 1px 3px);
+  mix-blend-mode: multiply;
+}
+.stage {
+  position: relative;
+  z-index: 2;
+  min-height: 100%;
+  max-width: 880px;
+  margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 16px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  box-sizing: border-box;
+}
+/* お題と選曲番号をひとかたまりにして、上下の余白の真ん中に置く */
+.telop { margin-top: auto; }
+.cue { margin-bottom: auto; }
+
+/* 上段 */
+.hud { display: flex; flex-direction: column; gap: 10px; }
+.hud-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.brand {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 14px;
+  letter-spacing: 0.06em;
+  padding: 4px 10px 5px;
+  border: 2px solid var(--ink);
+  border-radius: 6px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+.brand b { color: var(--glow); }
+.led {
+  font-family: var(--font-led);
+  color: var(--led);
+  letter-spacing: 0.08em;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 10px rgba(255, 224, 102, 0.5);
+}
+.count { font-size: 14px; white-space: nowrap; }
+.ticks {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 2px;
+  height: 6px;
+}
+.ticks i {
+  background: var(--ink-faint);
+  border-radius: 1px;
+}
+.ticks i.on { background: var(--led); box-shadow: 0 0 6px rgba(255, 224, 102, 0.6); }
+.ticks i.now { background: var(--glow); box-shadow: 0 0 8px var(--glow); }
+
+/* 下段:選曲番号 */
+.cue {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding-top: 10px;
+}
+.cue-label {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  color: var(--ink-soft);
+}
+.cue-no {
+  font-family: var(--font-led);
+  font-size: clamp(72px, 22vw, 140px);
+  line-height: 0.9;
+  color: var(--led);
+  text-shadow: 0 0 24px rgba(255, 224, 102, 0.45), 0 0 2px rgba(255, 224, 102, 0.9);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  margin-left: -0.04em;
+}
+.cue-no.pop { animation: pop 0.38s cubic-bezier(.2,1.6,.4,1); transform-origin: left bottom; }
+@keyframes pop { from { transform: scale(1.12); } to { transform: scale(1); } }
+.cue-no.idle { color: var(--ink-faint); text-shadow: none; }
+.cue-cat {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: clamp(18px, 5vw, 28px);
+  line-height: 1.3;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.round {
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--night);
+  background: var(--led);
+  border-radius: 4px;
+  padding: 1px 7px;
+}
+
+/* 中段:2行テロップ(1行目=歌い終わった前のお題、2行目=今のお題) */
+.telop {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 10px;
+  min-width: 0;
+}
+.prev {
+  margin: 0;
+  min-height: 1.5em;
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 10px;
+  font-family: var(--font-body);
+  font-weight: 700;
+  font-size: clamp(14px, 3.8vw, 18px);
+  line-height: 1.45;
+  color: var(--ink-soft);
+  min-width: 0;
+}
+.prev .tag {
+  flex: none;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  color: var(--telop-fill);
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  padding: 0 6px;
+  line-height: 1.6;
+}
+.prev .txt { min-width: 0; overflow-wrap: anywhere; word-break: auto-phrase; text-wrap: pretty; }
+.title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: clamp(28px, 8.4vw, 72px);
+  line-height: 1.2;
+  /* 行を均等にせず端まで詰める。単語の途中では切らない */
+  word-break: auto-phrase;
+  text-wrap: pretty;
+  text-align: center;
+  display: grid;
+  min-height: 2.4em;
+  align-items: center;
+}
+/* 文字幅に縮めて中央に置き、ワイプが文字の左端から始まるようにする */
+.title > span { grid-area: 1 / 1; justify-self: center; }
+.title .base {
+  color: var(--ink);
+  -webkit-text-stroke: 0.13em var(--telop-edge);
+  paint-order: stroke fill;
+}
+.title .fill {
+  color: var(--telop-fill);
+  -webkit-text-stroke: 0.13em var(--ink);
+  paint-order: stroke fill;
+  clip-path: inset(-0.3em 100% -0.3em -0.3em);
+}
+.title .fill.wipe { animation: wipe var(--wipe-dur, 1s) linear forwards; }
+.title .fill.done { clip-path: inset(-0.3em -0.3em -0.3em -0.3em); }
+@keyframes wipe {
+  from { clip-path: inset(-0.3em 100% -0.3em -0.3em); }
+  to { clip-path: inset(-0.3em -0.3em -0.3em -0.3em); }
+}
+.title.idle { font-size: clamp(24px, 6.4vw, 44px); }
+.title.idle .base { color: var(--ink-soft); }
+
+/* リモコン */
+.controls {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+.gacha {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 28px;
+  letter-spacing: 0.14em;
+  color: var(--ink);
+  background: radial-gradient(120% 140% at 30% 20%, #ff86ad 0%, var(--glow) 45%, #c2246a 100%);
+  border: none;
+  border-radius: 999px;
+  width: min(100%, 360px);
+  padding: 19px 0 21px;
+  cursor: pointer;
+  box-shadow: 0 7px 0 var(--glow-deep), 0 0 0 4px rgba(255, 255, 255, 0.12), 0 18px 40px -12px var(--glow);
+  transition: transform 0.08s ease, box-shadow 0.08s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.gacha:active:not(:disabled) {
+  transform: translateY(6px);
+  box-shadow: 0 1px 0 var(--glow-deep), 0 0 0 4px rgba(255, 255, 255, 0.12), 0 8px 18px -10px var(--glow);
+}
+.gacha:disabled { cursor: progress; }
+.gacha:focus-visible, .ctl:focus-visible {
+  outline: 3px solid var(--led);
+  outline-offset: 4px;
+}
+.sub { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+.ctl {
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink-soft);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 999px;
+  padding: 5px 14px;
+  cursor: pointer;
+}
+.ctl.armed { color: var(--glow); border-color: var(--glow); }
+.ctl[aria-expanded="true"] { color: var(--ink); border-color: var(--ink); }
+.hist {
+  width: min(100%, 520px);
+  list-style: none;
+  margin: 0;
+  padding: 10px 14px;
+  background: rgba(8, 6, 30, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  max-height: 38vh;
+  overflow-y: auto;
+  box-sizing: border-box;
+}
+.hist li {
+  display: grid;
+  grid-template-columns: 3.6em 1fr;
+  gap: 8px;
+  padding-block: 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+.hist li:first-child { border-top: none; }
+.hist .no { font-family: var(--font-led); color: var(--led); font-variant-numeric: tabular-nums; }
+.hist .txt { min-width: 0; overflow-wrap: anywhere; }
+.hist .empty { display: block; color: var(--ink-soft); }
+
+@media (min-width: 760px) {
+  .stage { padding-block: 28px 32px; }
+  .cue { flex-direction: row; align-items: flex-end; gap: 28px; }
+  .cue-meta { padding-bottom: 0.6em; display: flex; flex-direction: column; gap: 6px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .title .fill.wipe { animation: none; clip-path: inset(-0.3em -0.3em -0.3em -0.3em); }
+  .cue-no.pop { animation: none; }
+  .gacha { transition: none; }
+}
+</style>
+</head>
+<body>
+<canvas id="bgv" aria-hidden="true"></canvas>
+<div class="scan" aria-hidden="true"></div>
+
+<main class="stage">
+  <header class="hud">
+    <div class="hud-row">
+      <p class="brand">カラオケ縛りガチャ<b>！</b></p>
+      <span class="led count">残り <span id="left">--</span>曲 / <span id="total">--</span></span>
+    </div>
+    <div class="ticks" id="ticks" aria-hidden="true"></div>
+  </header>
+
+  <section class="telop" aria-live="polite">
+    <p class="prev" id="prev"></p>
+    <h1 class="title idle" id="title">
+      <span class="base" id="base">ボタンを押してお題を引こう</span>
+      <span class="fill" id="fill" aria-hidden="true"></span>
+    </h1>
+  </section>
+
+  <section class="cue" aria-label="選曲番号">
+    <div class="cue-no idle" id="no">--</div>
+    <div class="cue-meta">
+      <span class="cue-label">選曲番号 / 縛りジャンル</span>
+      <span class="cue-cat"><span id="cat">スタンバイ中</span><span class="round" id="round" hidden></span></span>
+    </div>
+  </section>
+
+  <div class="controls">
+    <button class="gacha" id="gacha" type="button">がちゃる</button>
+    <div class="sub">
+      <button class="ctl" id="histBtn" type="button" aria-expanded="false" aria-controls="hist">これまでのお題</button>
+      <button class="ctl" id="reset" type="button">最初から</button>
+    </div>
+    <ol class="hist" id="hist" hidden></ol>
+  </div>
+</main>
+
+<script>
+// お題リスト。ここを書き換えれば中身を差し替えられる(アプリ版 App.js の ODAI_LIST と同じ53個)
+const ODAI = [
+  { cat: '年代縛り', items: [
+    '80年代縛り', '90年代J-POP縛り', '2000年代縛り', '2010年代縛り', '懐メロ（20年以上前の曲）',
+  ]},
+  { cat: 'ジャンル縛り', items: [
+    'アニソン縛り', 'ボーカロイド縛り', '洋楽縛り', '演歌・歌謡曲縛り', 'アイドルソング縛り',
+    'ロック縛り', 'ラップ・ヒップホップ縛り', 'ゲーム音楽縛り', 'ディズニー縛り', '特撮・戦隊もの縛り',
+  ]},
+  { cat: '気分・シチュエーション', items: [
+    '元気が出る曲', '泣ける曲', '盛り上がる曲', 'しっとり系バラード', '思い出の曲',
+    '失恋ソング', '応援ソング', '夏っぽい曲', '冬っぽい曲',
+  ]},
+  { cat: '選曲縛り', items: [
+    'デュエット曲', '普段歌わないジャンル', '高得点を狙える曲', 'アップテンポ縛り', '英語の歌詞で挑戦',
+    '早口・ラップパートがある曲', '高い声が出る曲', '低音が響く曲', '一番好きな曲を熱唱',
+    '初めて歌う曲に挑戦', '誰かのオススメ曲を歌う',
+  ]},
+  { cat: 'タイトル縛り（文字数）', items: [
+    'タイトルが1文字の曲', 'タイトルが2文字の曲', 'タイトルが4文字の曲', 'タイトルが5文字以内の曲',
+    'タイトルが6文字の曲', 'タイトルが7文字の曲', 'タイトルが7文字以上の曲',
+  ]},
+  { cat: 'タイトル縛り（言葉）', items: [
+    'タイトルにひらがなが入っている曲', 'タイトルにカタカナが入っている曲', 'タイトルに数字が入っている曲',
+    'タイトルにアルファベットが入っている曲', 'タイトルに「！」か「？」が入っている曲',
+    'タイトルに色の名前が入っている曲', 'タイトルに天気・季節に関する言葉が入っている曲',
+    'タイトルに生き物の名前が入っている曲', 'タイトルに体の部位の名前が入っている曲',
+    'タイトルに方角や場所を表す言葉が入っている曲', 'タイトルに「愛」という漢字が入っている曲',
+  ]},
+];
+
+const ALL = ODAI.flatMap(g => g.items.map(text => ({ cat: g.cat, text })));
+const STORE_KEY = 'karaoke-shibari-gacha-v1';
+const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+const $ = id => document.getElementById(id);
+const els = {
+  no: $('no'), cat: $('cat'), round: $('round'), title: $('title'), base: $('base'), fill: $('fill'),
+  left: $('left'), total: $('total'), prev: $('prev'), ticks: $('ticks'),
+  gacha: $('gacha'), reset: $('reset'), hist: $('hist'), histBtn: $('histBtn'),
+};
+const pad = n => String(n).padStart(2, '0');
+
+function shuffle(array) {
+  const result = [...array];
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+  return result;
+}
+const freshDeck = () => shuffle(ALL.map((_, i) => i));
+
+function load() {
+  try {
+    const s = JSON.parse(localStorage.getItem(STORE_KEY));
+    const valid = a => Array.isArray(a) && a.every(i => Number.isInteger(i) && i >= 0 && i < ALL.length);
+    if (s && s.total === ALL.length && valid(s.remaining) && valid(s.history)) {
+      return { remaining: s.remaining, history: s.history, round: s.round || 1 };
+    }
+  } catch (e) {}
+  return { remaining: freshDeck(), history: [], round: 1 };
+}
+function save() {
+  try {
+    localStorage.setItem(STORE_KEY, JSON.stringify({
+      total: ALL.length, remaining: state.remaining, history: state.history, round: state.round,
+    }));
+  } catch (e) {}
+}
+let state = load();
+
+// 進行バー:この周で引いた数だけ点灯、最後の1つは今のお題
+els.ticks.innerHTML = '<i></i>'.repeat(ALL.length);
+function renderCounters() {
+  els.left.textContent = pad(state.remaining.length);
+  els.total.textContent = pad(ALL.length);
+  els.round.hidden = state.round < 2;
+  els.round.textContent = `${state.round}周目`;
+  const used = ALL.length - state.remaining.length;
+  [...els.ticks.children].forEach((t, k) => {
+    t.className = k < used - 1 ? 'on' : k === used - 1 ? 'now' : '';
+  });
+}
+function renderHistory() {
+  els.hist.innerHTML = '';
+  if (state.history.length === 0) {
+    const li = document.createElement('li');
+    li.className = 'empty';
+    li.textContent = 'まだ引いてないよ。引いたお題はここに残るよ。';
+    els.hist.append(li);
+  }
+  state.history.forEach(i => {
+    const li = document.createElement('li');
+    li.innerHTML = '<span class="no"></span><span class="txt"></span>';
+    li.firstChild.textContent = 'No.' + pad(i + 1);
+    li.lastChild.textContent = ALL[i].text;
+    els.hist.append(li);
+  });
+  const p = state.history[1];
+  els.prev.innerHTML = '';
+  if (p != null) {
+    const tag = document.createElement('span');
+    tag.className = 'tag';
+    tag.textContent = 'ひとつ前';
+    const txt = document.createElement('span');
+    txt.className = 'txt';
+    txt.textContent = ALL[p].text;
+    els.prev.append(tag, txt);
+  }
+}
+function setCue(i) {
+  els.no.classList.remove('idle');
+  els.no.textContent = pad(i + 1);
+  els.cat.textContent = ALL[i].cat;
+}
+function setTelop(i, animate) {
+  const text = ALL[i].text;
+  els.title.classList.remove('idle');
+  els.base.textContent = text;
+  els.fill.textContent = text;
+  els.fill.classList.remove('wipe', 'done');
+  if (!animate) { els.fill.classList.add('done'); return; }
+  void els.fill.offsetWidth; // アニメーションを毎回最初から再生する
+  els.fill.style.setProperty('--wipe-dur', Math.min(1.6, 0.35 + text.length * 0.055) + 's');
+  els.fill.classList.add('wipe');
+}
+function showIdle() {
+  els.no.classList.add('idle');
+  els.no.textContent = '--';
+  els.cat.textContent = 'スタンバイ中';
+  els.title.classList.add('idle');
+  els.base.textContent = 'ボタンを押してお題を引こう';
+  els.fill.textContent = '';
+  els.fill.classList.remove('wipe', 'done');
+}
+
+function draw() {
+  if (state.remaining.length === 0) {
+    state.remaining = freshDeck();
+    state.round += 1;
+  }
+  const [next, ...rest] = state.remaining;
+  state.remaining = rest;
+  state.history = [next, ...state.history].slice(0, 200);
+  save();
+  return next;
+}
+
+function onGacha() {
+  disarmReset();
+  const next = draw();
+  renderCounters();
+  renderHistory();
+  pulse();
+  if (reduceMotion) { setCue(next); setTelop(next, false); return; }
+  // 選曲番号がパラパラ回ってから確定し、テロップがワイプする
+  els.gacha.disabled = true;
+  els.title.classList.remove('idle');
+  els.base.textContent = '';
+  els.fill.textContent = '';
+  els.fill.classList.remove('wipe', 'done');
+  let n = 0;
+  const timer = setInterval(() => {
+    setCue(Math.floor(Math.random() * ALL.length));
+    if (++n >= 9) {
+      clearInterval(timer);
+      setCue(next);
+      els.no.classList.remove('pop');
+      void els.no.offsetWidth;
+      els.no.classList.add('pop');
+      setTelop(next, true);
+      els.gacha.disabled = false;
+    }
+  }, 55);
+}
+
+let resetTimer = null;
+function disarmReset() {
+  clearTimeout(resetTimer);
+  els.reset.classList.remove('armed');
+  els.reset.textContent = '最初から';
+}
+function onReset() {
+  if (!els.reset.classList.contains('armed')) {
+    els.reset.classList.add('armed');
+    els.reset.textContent = 'もう一回押すとリセット';
+    resetTimer = setTimeout(disarmReset, 3000);
+    return;
+  }
+  disarmReset();
+  state = { remaining: freshDeck(), history: [], round: 1 };
+  save();
+  renderCounters();
+  renderHistory();
+  showIdle();
+}
+function onHist() {
+  const open = els.hist.hidden;
+  els.hist.hidden = !open;
+  els.histBtn.setAttribute('aria-expanded', String(open));
+  if (open) els.hist.scrollIntoView({ block: 'nearest', behavior: reduceMotion ? 'auto' : 'smooth' });
+}
+els.gacha.addEventListener('click', onGacha);
+els.reset.addEventListener('click', onReset);
+els.histBtn.addEventListener('click', onHist);
+
+// 背景映像:ゆっくり漂う街の灯りのボケ。ガチャを引くと一瞬だけ明るく速くなる
+const cv = $('bgv');
+const ctx = cv.getContext('2d');
+let W = 0, H = 0, dots = [], boost = 0;
+const HUES = ['255,79,139', '47,210,255', '255,224,102', '170,120,255'];
+function resize() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  W = cv.clientWidth; H = cv.clientHeight;
+  cv.width = W * dpr; cv.height = H * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const count = Math.round(Math.min(30, Math.max(16, W * H / 24000)));
+  dots = Array.from({ length: count }, () => ({
+    x: Math.random() * W, y: H * (0.25 + Math.random() * 0.8),
+    r: 18 + Math.random() * 64, vx: (Math.random() - 0.5) * 0.18, vy: -0.05 - Math.random() * 0.12,
+    c: HUES[Math.floor(Math.random() * HUES.length)], a: 0.1 + Math.random() * 0.18,
+  }));
+}
+function frame() {
+  ctx.clearRect(0, 0, W, H);
+  ctx.globalCompositeOperation = 'lighter';
+  for (const d of dots) {
+    if (!reduceMotion) {
+      d.x += d.vx * (1 + boost * 8); d.y += d.vy * (1 + boost * 8);
+      if (d.y < -d.r) { d.y = H + d.r; d.x = Math.random() * W; }
+      if (d.x < -d.r) d.x = W + d.r;
+      if (d.x > W + d.r) d.x = -d.r;
+    }
+    const a = Math.min(0.55, d.a * (1 + boost * 1.6));
+    const g = ctx.createRadialGradient(d.x, d.y, 0, d.x, d.y, d.r);
+    g.addColorStop(0, `rgba(${d.c},${a})`);
+    g.addColorStop(0.6, `rgba(${d.c},${a * 0.4})`);
+    g.addColorStop(1, `rgba(${d.c},0)`);
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(d.x, d.y, d.r, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.globalCompositeOperation = 'source-over';
+  boost *= 0.95;
+  if (!reduceMotion) requestAnimationFrame(frame);
+}
+function pulse() { boost = 1; if (reduceMotion) frame(); }
+window.addEventListener('resize', () => { resize(); if (reduceMotion) frame(); });
+resize();
+frame();
+
+renderCounters();
+renderHistory();
+if (state.history.length) { setCue(state.history[0]); setTelop(state.history[0], false); } else showIdle();
+</script>
+</body>
+</html>
